@@ -26,5 +26,8 @@ export function createServer() {
   app.post("/api/membit/search-posts", searchPosts);
   app.post("/api/membit/search-clusters", searchClusters);
 
+  // Agent endpoint (runs Membit queries + LLM prediction)
+  app.post("/api/agent/run", (await import("./routes/agent")).runAgent);
+
   return app;
 }
