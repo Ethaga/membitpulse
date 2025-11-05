@@ -55,6 +55,53 @@ export default function Index() {
 
       <ViralPanel topics={filtered} />
 
+      <div className="rounded-2xl border border-cyan-400/30 bg-[#0f0f0f]/80 neon-border p-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="text-sm tracking-wide text-foreground/70">Run Viral Analysis</div>
+            <div className="text-xs text-foreground/60">Analyze a topic using Membit data + LLM prediction</div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={async () => {
+                try {
+                  setAnalysisLoading(true);
+                  setAnalysisError(null);
+                  const target = query.trim() || filtered[0]?.name || "";
+                  const resp = await fetch('/api/agent/run', {
+                    method: 'POST',
+                    headers: { 'content-type': 'application/json' },
+                    body: JSON.stringify({ query: target }),
+                  });
+                  const json = await resp.json();
+                  if (!json.ok) {
+                    setAnalysisError(json.error || 'Agent failed');
+                  } else {
+                    setAnalysisResult(json.data || json.raw || json);
+                    setAnalysisMeta({ posts: json.posts, clusters: json.clusters });
+                  }
+                } catch (err: any) {
+                  setAnalysisError(err?.message ?? String(err));
+                } finally {
+                  setAnalysisLoading(false);
+                }
+              }}
+              className="px-4 py-2 rounded-xl border border-cyan-400/40 glow-cyan hover:bg-primary/10"
+            >
+              Run Analysis
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-4">
+          {analysisLoading && <div className="text-sm text-foreground/60">Running analysis…</div>}
+          {analysisError && <div className="text-sm text-secondary">{analysisError}</div>}
+          {analysisResult && (
+            <pre className="mt-3 max-h-64 overflow-auto text-xs text-foreground/80 bg-[#070707] p-3 rounded-md border border-cyan-400/10">{typeof analysisResult === 'string' ? analysisResult : JSON.stringify(analysisResult, null, 2)}</pre>
+          )}
+        </div>
+      </div>
+
       {loading && (
         <div className="text-sm text-foreground/60">Loading real-time data…</div>
       )}
