@@ -85,6 +85,7 @@ export default function Index() {
         <div className="lg:col-span-1 space-y-6">
           {data && <CPIGauge value={data.cpi.cpi} />}
           {data && <SentimentChart data={data.sentiment} />}
+          <AnalysisHistory items={history.map(h => ({ id: h.id, ts: h.ts, topic: h.topic, score: h.score, action: h.action }))} onClear={clearHistory} />
         </div>
       </div>
 
@@ -138,7 +139,7 @@ export default function Index() {
       </div>
 
       {loading && (
-        <div className="text-sm text-foreground/60">Loading real-time data…</div>
+        <div className="text-sm text-foreground/60">Loading real-time data���</div>
       )}
       {error && (
         <div className="text-sm text-secondary">Failed to load latest trends. Showing cached/mock data.</div>
