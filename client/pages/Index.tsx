@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import Filters, { type Category } from "@/components/Filters";
 import TrendStream from "@/components/TrendStream";
 import SentimentChart from "@/components/SentimentChart";
