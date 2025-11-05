@@ -13,11 +13,16 @@ Setup:
    source .venv/bin/activate
    pip install -r requirements.txt
 
-2. Set environment variables:
-   export MEMBIT_API_KEY="<your membit key>"
-   export OPENAI_API_KEY="<your openai key>"   # or other provider supported by LangChain
+2. (Preferred) Use your server proxy endpoints so the LangChain tool does not need MEMBIT_API_KEY locally.
+   - By default the tool calls the proxy at:
+     https://b560de43035a4d848c2a15b158158d00-dbf084e4596c48838d40d27a8.fly.dev
+   - To override, set MEMBIT_PROXY_BASE to your server URL, e.g.:
+     export MEMBIT_PROXY_BASE="http://localhost:8080"
 
-3. Run the example:
+3. Set LLM provider env (e.g. OpenAI):
+   export OPENAI_API_KEY="<your openai key>"
+
+4. Run the example:
    python agent_example.py
 
 Notes:
