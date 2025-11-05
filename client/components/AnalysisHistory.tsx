@@ -10,11 +10,28 @@ export interface HistoryItem {
 }
 
 export default function AnalysisHistory({ items, onClear }: { items: HistoryItem[]; onClear: () => void }) {
+  const exportCSV = () => {
+    if (!items || items.length === 0) return;
+    const headers = ['id','ts','topic','score','action'];
+    const rows = items.map(i => [i.id, new Date(i.ts).toISOString(), i.topic.replace(/\n/g,' '), (i.score!=null?i.score:''), (i.action||'')]);
+    const csv = [headers.join(','), ...rows.map(r => r.map(cell => `"${String(cell).replace(/"/g,'""')}"`).join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `membit_analysis_history_${Date.now()}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="rounded-2xl border border-cyan-400/20 bg-[#0f0f0f]/60 p-4">
       <div className="flex items-center justify-between mb-3">
         <div className="text-sm font-semibold text-foreground">Recent Analyses</div>
-        <button onClick={onClear} className="text-xs text-foreground/60 hover:text-foreground">Clear</button>
+        <div className="flex items-center gap-3">
+          <button onClick={exportCSV} className="text-xs text-foreground/60 hover:text-foreground">Export CSV</button>
+          <button onClick={onClear} className="text-xs text-foreground/60 hover:text-foreground">Clear</button>
+        </div>
       </div>
       {items.length === 0 ? (
         <div className="text-xs text-foreground/60">No previous analyses</div>
