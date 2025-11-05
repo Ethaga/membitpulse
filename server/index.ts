@@ -19,5 +19,8 @@ export function createServer() {
 
   app.get("/api/demo", handleDemo);
 
+  // Membit proxy endpoints (mock fallback if no API key)
+  app.get("/api/membit/trends", (await import("./routes/membit")).membitTrends);
+
   return app;
 }
