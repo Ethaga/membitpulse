@@ -28,6 +28,33 @@ export default function Index() {
   const [analysisResult, setAnalysisResult] = useState<any>(null);
   const [analysisMeta, setAnalysisMeta] = useState<{ posts?: any; clusters?: any } | null>(null);
 
+  const [history, setHistory] = useState<any[]>([]);
+
+  // load history from localStorage once
+  React.useEffect(() => {
+    try {
+      const raw = localStorage.getItem('membit_analysis_history');
+      if (raw) setHistory(JSON.parse(raw));
+    } catch (e) {
+      console.warn('Failed to load history', e);
+    }
+  }, []);
+
+  const pushHistory = (item: any) => {
+    const next = [item, ...history].slice(0, 20);
+    setHistory(next);
+    try {
+      localStorage.setItem('membit_analysis_history', JSON.stringify(next));
+    } catch (e) {
+      console.warn('Failed to save history', e);
+    }
+  };
+
+  const clearHistory = () => {
+    setHistory([]);
+    try { localStorage.removeItem('membit_analysis_history'); } catch {}
+  };
+
   const filtered: TrendTopic[] = useMemo(() => {
     let base = sortedTopics;
     if (category !== "All") base = base.filter((t) => classifyCategory(t.name) === category);
