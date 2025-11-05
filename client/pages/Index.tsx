@@ -5,6 +5,8 @@ import SentimentChart from "@/components/SentimentChart";
 import CPIGauge from "@/components/CPIGauge";
 import ViralPanel from "@/components/ViralPanel";
 import AgentResultCard from "@/components/AgentResultCard";
+import LoadingSkeleton from "@/components/LoadingSkeleton";
+import AnalysisHistory from "@/components/AnalysisHistory";
 import { useRealTimeTrends } from "@/hooks/useRealTimeTrends";
 import type { TrendTopic } from "@shared/api";
 
