@@ -2,6 +2,7 @@ import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import { handleDemo } from "./routes/demo";
+import { membitTrends } from "./routes/membit";
 
 export function createServer() {
   const app = express();
@@ -20,7 +21,7 @@ export function createServer() {
   app.get("/api/demo", handleDemo);
 
   // Membit proxy endpoints (mock fallback if no API key)
-  app.get("/api/membit/trends", (await import("./routes/membit")).membitTrends);
+  app.get("/api/membit/trends", membitTrends);
 
   return app;
 }
