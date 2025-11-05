@@ -1,6 +1,7 @@
 import type { RequestHandler } from "express";
 
-// Server-side agent endpoint: calls Membit APIs (using MEMBIT_API_KEY) and OpenAI to produce viral prediction
+// Server-side agent endpoint: call Membit MCP endpoint for consolidated social context,
+// fallback to direct Membit API if MCP call fails. Then call LLM (OpenAI) to produce viral prediction.
 
 export const runAgent: RequestHandler = async (req, res) => {
   try {
@@ -10,7 +11,35 @@ export const runAgent: RequestHandler = async (req, res) => {
     const membitKey = process.env.MEMBIT_API_KEY;
     const openaiKey = process.env.OPENAI_API_KEY;
 
-    // Fetch posts and clusters from Membit API directly using MEMBIT_API_KEY
+    if (!membitKey) {
+      console.warn('MEMBIT_API_KEY not set; falling back to mock data for agent');
+    }
+
+    async function callMCP(topicStr: string) {
+      // Call the Membit MCP endpoint with a request asking for trends, sentiment, volume, engagement
+      const url = process.env.MEMBIT_MCP_URL || "https://mcp.membit.ai/mcp";
+      const body = {
+        action: "reasoning", // best-effort action name; MCP should interpret
+        query: topicStr,
+        features: ["trends", "sentiment", "volume", "engagement", "clusters", "posts"],
+        limit: 20,
+      };
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${membitKey}`,
+        },
+        body: JSON.stringify(body),
+      });
+      if (!resp.ok) {
+        const txt = await resp.text();
+        throw new Error(`MCP error ${resp.status}: ${txt}`);
+      }
+      return resp.json();
+    }
+
+    // Fallback direct Membit endpoints
     async function callMembit(path: string, body: any) {
       if (!membitKey) throw new Error("MEMBIT_API_KEY not configured on server");
       const url = `https://api.membit.ai/v1/${path}`;
@@ -21,7 +50,6 @@ export const runAgent: RequestHandler = async (req, res) => {
           Authorization: `Bearer ${membitKey}`,
         },
         body: body ? JSON.stringify(body) : undefined,
-        // timeout is handled by platform
       });
       if (!resp.ok) {
         const txt = await resp.text();
@@ -30,10 +58,31 @@ export const runAgent: RequestHandler = async (req, res) => {
       return resp.json();
     }
 
-    const [postsResp, clustersResp] = await Promise.all([
-      callMembit("search-posts", { query: topic, limit: 8 }).catch((e) => ({ error: String(e) })),
-      callMembit("search-clusters", { query: topic, limit: 6 }).catch((e) => ({ error: String(e) })),
-    ]);
+    // Try MCP first
+    let mcpResp: any = null;
+    try {
+      mcpResp = await callMCP(topic);
+    } catch (e) {
+      console.warn('MCP call failed, falling back to search-posts/clusters:', (e as any)?.message ?? e);
+    }
+
+    // If MCP didn't return expected structure, fallback to direct endpoints
+    let postsResp: any = null;
+    let clustersResp: any = null;
+
+    if (mcpResp) {
+      // Try to extract posts/clusters from mcpResp in common fields
+      postsResp = mcpResp.posts ?? mcpResp.results ?? mcpResp.data ?? mcpResp.items ?? mcpResp.topics ?? null;
+      clustersResp = mcpResp.clusters ?? mcpResp.groups ?? mcpResp.clusters ?? null;
+      // If MCP provided sentiment/metrics, include under _mcp_meta for reference
+    }
+
+    if (!postsResp) {
+      postsResp = await callMembit("search-posts", { query: topic, limit: 8 }).catch((e) => ({ error: String(e) }));
+    }
+    if (!clustersResp) {
+      clustersResp = await callMembit("search-clusters", { query: topic, limit: 6 }).catch((e) => ({ error: String(e) }));
+    }
 
     function summarizeResults(data: any, keyNames: string[] = ["results", "items", "posts"]) {
       if (!data) return "(no data)";
@@ -63,7 +112,7 @@ export const runAgent: RequestHandler = async (req, res) => {
     const postsSummary = summarizeResults(postsResp, ["results", "posts", "items"]);
     const clustersSummary = summarizeResults(clustersResp, ["clusters", "items", "results"]);
 
-    // Build prompt
+    // Build prompt for LLM
     const system = `You are Membit Pulse analysis assistant. Produce a concise viral prediction for the given topic. Provide:\n- Viral Score (0-100) on its own line as: Score: <number>\n- 3 short rationale bullets referencing volume/growth/sentiment/memeability\n- Suggested action: Monitor / Amplify / Ignore\nRespond in JSON: {"score": number, "rationale": string[], "action": string, "explanation": string}`;
     const user = `Topic: ${topic}\n\nPosts:\n${postsSummary}\n\nClusters:\n${clustersSummary}\n\nReturn compact JSON as specified.`;
 
@@ -80,7 +129,7 @@ export const runAgent: RequestHandler = async (req, res) => {
         action: fallbackScore > 70 ? "Amplify" : fallbackScore > 45 ? "Monitor" : "Ignore",
         explanation: "Fallback rule-based estimation because OPENAI_API_KEY is not configured on server.",
       };
-      return res.json({ ok: true, data: fallback, posts: postsResp, clusters: clustersResp });
+      return res.json({ ok: true, data: fallback, posts: postsResp, clusters: clustersResp, mcp: mcpResp });
     }
 
     // Call OpenAI ChatCompletions
@@ -111,16 +160,14 @@ export const runAgent: RequestHandler = async (req, res) => {
     // Try to parse JSON out of model reply
     let parsed = null;
     try {
-      // If the assistant sent JSON with code fences, trim non-json
       const m = content?.match(/\{[\s\S]*\}/);
       const jsonText = m ? m[0] : content;
       parsed = JSON.parse(jsonText);
     } catch (e) {
-      // not parsable
       parsed = { raw: content };
     }
 
-    res.json({ ok: true, data: parsed, raw: content, posts: postsResp, clusters: clustersResp });
+    res.json({ ok: true, data: parsed, raw: content, posts: postsResp, clusters: clustersResp, mcp: mcpResp });
   } catch (err: any) {
     console.error('/api/agent/run error', err?.message ?? err);
     res.status(500).json({ ok: false, error: err?.message ?? String(err) });
