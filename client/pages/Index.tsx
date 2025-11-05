@@ -32,6 +32,9 @@ export default function Index() {
   const [analysisMeta, setAnalysisMeta] = useState<{ posts?: any; clusters?: any } | null>(null);
 
   const [history, setHistory] = useState<any[]>([]);
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [pendingTarget, setPendingTarget] = useState<string | null>(null);
+  const [lastRunTs, setLastRunTs] = useState<number>(0);
 
   // load history from localStorage once
   React.useEffect(() => {
@@ -57,6 +60,58 @@ export default function Index() {
     setHistory([]);
     try { localStorage.removeItem('membit_analysis_history'); } catch {}
   };
+
+  async function runAnalysis(target: string) {
+    setAnalysisLoading(true);
+    setAnalysisError(null);
+    setAnalysisResult(null);
+    try {
+      const resp = await fetch('/api/agent/run', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ query: target }),
+      });
+      const json = await resp.json();
+      if (!json.ok) {
+        setAnalysisError(json.error || 'Agent failed');
+        return;
+      }
+      const result = json.data || json.raw || json;
+      setAnalysisResult(result);
+      setAnalysisMeta({ posts: json.posts, clusters: json.clusters });
+      const score = (result && typeof result === 'object') ? (result.score ?? result?.score) : null;
+      const action = result?.action ?? null;
+      const histItem = { id: `${Date.now()}-${Math.random().toString(36).slice(2,8)}`, ts: Date.now(), topic: target, score, action, raw: result };
+      pushHistory(histItem);
+      setLastRunTs(Date.now());
+    } catch (err: any) {
+      setAnalysisError(err?.message ?? String(err));
+    } finally {
+      setAnalysisLoading(false);
+    }
+  }
+
+  function tryStartAnalysis(target: string) {
+    const now = Date.now();
+    const diff = now - lastRunTs;
+    const LIMIT_MS = 15000; // 15s
+    if (diff < LIMIT_MS) {
+      setAnalysisError(`Rate limit: please wait ${Math.ceil((LIMIT_MS - diff)/1000)}s before next analysis`);
+      return;
+    }
+    setPendingTarget(target);
+    setShowConfirm(true);
+  }
+
+  async function confirmAndRun() {
+    if (!pendingTarget) {
+      setShowConfirm(false);
+      return;
+    }
+    setShowConfirm(false);
+    await runAnalysis(pendingTarget);
+    setPendingTarget(null);
+  }
 
   const filtered: TrendTopic[] = useMemo(() => {
     let base = sortedTopics;
