@@ -7,6 +7,7 @@ import ViralPanel from "@/components/ViralPanel";
 import AgentResultCard from "@/components/AgentResultCard";
 import LoadingSkeleton from "@/components/LoadingSkeleton";
 import AnalysisHistory from "@/components/AnalysisHistory";
+import ConfirmModal from "@/components/ConfirmModal";
 import { useRealTimeTrends } from "@/hooks/useRealTimeTrends";
 import type { TrendTopic } from "@shared/api";
 
