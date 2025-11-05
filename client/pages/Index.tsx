@@ -34,6 +34,11 @@ export default function Index() {
     return base;
   }, [sortedTopics, query, category]);
 
+  const [analysisLoading, setAnalysisLoading] = useState(false);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
+  const [analysisResult, setAnalysisResult] = useState<any>(null);
+  const [analysisMeta, setAnalysisMeta] = useState<{ posts?: any; clusters?: any } | null>(null);
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-2">
