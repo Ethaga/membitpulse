@@ -32,11 +32,16 @@ export const runAgent: RequestHandler = async (req, res) => {
         },
         body: JSON.stringify(body),
       });
+
+      const text = await resp.text();
       if (!resp.ok) {
-        const txt = await resp.text();
-        throw new Error(`MCP error ${resp.status}: ${txt}`);
+        throw new Error(`MCP error ${resp.status}: ${text}`);
       }
-      return resp.json();
+      try {
+        return JSON.parse(text);
+      } catch (e) {
+        return text;
+      }
     }
 
     // Fallback direct Membit endpoints
@@ -51,11 +56,16 @@ export const runAgent: RequestHandler = async (req, res) => {
         },
         body: body ? JSON.stringify(body) : undefined,
       });
+
+      const text = await resp.text();
       if (!resp.ok) {
-        const txt = await resp.text();
-        throw new Error(`Membit error ${resp.status}: ${txt}`);
+        throw new Error(`Membit error ${resp.status}: ${text}`);
       }
-      return resp.json();
+      try {
+        return JSON.parse(text);
+      } catch (e) {
+        return text;
+      }
     }
 
     // Try MCP first
