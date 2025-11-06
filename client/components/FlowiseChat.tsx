@@ -28,7 +28,7 @@ export default function FlowiseChat({ meta }: { meta?: any }) {
       const resp = await fetch("/api/flowise/chat", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ input: msg, meta }),
+        body: JSON.stringify({ question: msg, meta }),
       });
       const text = await resp.text();
       let json: any;
