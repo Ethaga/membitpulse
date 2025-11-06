@@ -8,6 +8,11 @@ export const flowiseChat: RequestHandler = async (req, res) => {
 
     const body = req.body || {};
 
+    // Normalize payload to Flowise expected shape: { question: "..." }
+    const question = typeof body.question === 'string' ? body.question : (typeof body.input === 'string' ? body.input : (typeof body.message === 'string' ? body.message : (typeof body.query === 'string' ? body.query : '')));
+    const payload: any = { question };
+    if (body.meta) payload.meta = body.meta;
+
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
     };
@@ -19,7 +24,7 @@ export const flowiseChat: RequestHandler = async (req, res) => {
     const resp = await fetch(url, {
       method: "POST",
       headers,
-      body: JSON.stringify(body),
+      body: JSON.stringify(payload),
     });
 
     const text = await resp.text();
