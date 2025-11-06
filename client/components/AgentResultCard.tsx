@@ -1,5 +1,6 @@
 import React from "react";
 import { cn } from "@/lib/utils";
+import FlowiseChat from "./FlowiseChat";
 
 export interface AgentResultCardProps {
   result: any;
