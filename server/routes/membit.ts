@@ -168,6 +168,14 @@ export const membitTrends: RequestHandler = async (req, res) => {
             const text = await resp.text();
             if (!resp.ok) {
               console.error('/api/membit/trends remote error', resp.status, text);
+              if (resp.status === 404) {
+                // Endpoint not available on Membit REST — fall back to local mock trends
+                console.warn('/api/membit/trends REST returned 404; using local mock data');
+                const topics = mockTrends(12);
+                const sentiment = computeSentiment(topics);
+                const cpi = computeCPI(topics);
+                return res.status(200).json({ topics, sentiment, cpi, ts: Date.now(), mcp: null, fallback: 'mock' });
+              }
               return res.status(502).json({ error: `Membit API error ${resp.status}: ${text}` });
             }
             const jsonFallback = JSON.parse(text);
