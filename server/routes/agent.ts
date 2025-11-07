@@ -143,7 +143,7 @@ export const runAgent: RequestHandler = async (req, res) => {
       return res.json({ ok: true, data: fallback, posts: postsResp, clusters: clustersResp, mcp: mcpResp });
     }
 
-    // Call OpenAI ChatCompletions with retry to cheaper model on 429
+    // Call OpenAI ChatCompletions but prefer immediate rule-based fallback on any non-OK response
     const initialModel = process.env.OPENAI_MODEL || "gpt-4";
     async function callOpenAI(modelName: string) {
       const resp = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -166,31 +166,51 @@ export const runAgent: RequestHandler = async (req, res) => {
       return { resp, text } as const;
     }
 
-    // Try initial model, then fallback to gpt-3.5-turbo if we receive a 429 and model differs
-    let openaiModelUsed = initialModel;
-    let openaiResp = null as any;
-    let openaiText = "";
-
+    const openaiModelAttempted = initialModel;
     try {
-      let attempt = await callOpenAI(initialModel);
-      openaiResp = attempt.resp;
-      openaiText = attempt.text;
+      const attempt = await callOpenAI(initialModel);
+      const openaiResp = attempt.resp;
+      const openaiText = attempt.text;
 
-      // If rate-limited (429) or model unavailable (404 with model error), retry with gpt-3.5-turbo
-      if (initialModel !== "gpt-3.5-turbo") {
-        const textLower = String(openaiText || "").toLowerCase();
-        const modelUnavailable = openaiResp.status === 404 && (/model .*does not exist/.test(textLower) || /do not have access/.test(textLower) || /the model/i.test(textLower));
-        if ((openaiResp.status === 429 || modelUnavailable)) {
-          console.warn('OpenAI error on model', initialModel, 'status', openaiResp.status, '- retrying with gpt-3.5-turbo');
-          openaiModelUsed = "gpt-3.5-turbo";
-          const retryAttempt = await callOpenAI(openaiModelUsed);
-          openaiResp = retryAttempt.resp;
-          openaiText = retryAttempt.text;
-        }
+      if (!openaiResp.ok) {
+        // Immediate rule-based fallback — do not retry. Surface reason in response for UI.
+        console.warn('OpenAI returned non-OK status, using rule-based fallback:', openaiResp.status, openaiText);
+        const fallbackScore = Math.min(100, Math.round(50 + Math.random() * 40));
+        const fallback = {
+          score: fallbackScore,
+          rationale: [
+            "Volume shows recent pickup in mentions",
+            "Growth rate strong compared to baseline",
+            "Sentiment mixed but high engagement",
+          ],
+          action: fallbackScore > 70 ? "Amplify" : fallbackScore > 45 ? "Monitor" : "Ignore",
+          explanation: `Fallback rule-based estimation because OpenAI returned ${openaiResp.status}: ${openaiText}`,
+        };
+        return res.json({ ok: true, data: fallback, posts: postsResp, clusters: clustersResp, mcp: mcpResp, openai_error: openaiText, openai_fallback: true, openai_model_attempted: openaiModelAttempted });
       }
-    } catch (e) {
-      console.warn('OpenAI fetch error:', e);
-      // fallback to rule-based
+
+      // Success path continues below
+      let openaiJson: any = null;
+      try {
+        openaiJson = JSON.parse(openaiText);
+      } catch (e) {
+        openaiJson = null;
+      }
+      const content = openaiJson?.choices?.[0]?.message?.content ?? openaiText;
+
+      // Try to parse JSON out of model reply
+      let parsed = null;
+      try {
+        const m = content?.match(/\{[\s\S]*\}/);
+        const jsonText = m ? m[0] : content;
+        parsed = JSON.parse(jsonText);
+      } catch (e) {
+        parsed = { raw: content };
+      }
+
+      return res.json({ ok: true, data: parsed, raw: content, posts: postsResp, clusters: clustersResp, mcp: mcpResp, openai_model_used: initialModel });
+    } catch (e: any) {
+      console.warn('OpenAI fetch error, using rule-based fallback:', e);
       const fallbackScore = Math.min(100, Math.round(50 + Math.random() * 40));
       const fallback = {
         score: fallbackScore,
@@ -202,46 +222,8 @@ export const runAgent: RequestHandler = async (req, res) => {
         action: fallbackScore > 70 ? "Amplify" : fallbackScore > 45 ? "Monitor" : "Ignore",
         explanation: `Fallback rule-based estimation because OpenAI fetch error: ${String(e)}`,
       };
-      return res.json({ ok: true, data: fallback, posts: postsResp, clusters: clustersResp, mcp: mcpResp, openai_error: String(e) });
+      return res.json({ ok: true, data: fallback, posts: postsResp, clusters: clustersResp, mcp: mcpResp, openai_error: String(e), openai_fallback: true, openai_model_attempted: openaiModelAttempted });
     }
-
-    if (!openaiResp.ok) {
-      console.warn('OpenAI call failed after retries:', openaiResp.status, openaiText);
-      // Fallback to rule-based estimator if OpenAI errors (quota, rate limits, etc.)
-      const fallbackScore = Math.min(100, Math.round(50 + Math.random() * 40));
-      const fallback = {
-        score: fallbackScore,
-        rationale: [
-          "Volume shows recent pickup in mentions",
-          "Growth rate strong compared to baseline",
-          "Sentiment mixed but high engagement",
-        ],
-        action: fallbackScore > 70 ? "Amplify" : fallbackScore > 45 ? "Monitor" : "Ignore",
-        explanation: `Fallback rule-based estimation because OpenAI returned ${openaiResp.status}: ${openaiText}`,
-      };
-      return res.json({ ok: true, data: fallback, posts: postsResp, clusters: clustersResp, mcp: mcpResp, openai_error: openaiText, openai_model_used: openaiModelUsed });
-    }
-
-    let openaiJson: any = null;
-    try {
-      openaiJson = JSON.parse(openaiText);
-    } catch (e) {
-      // If parsing fails, include raw text
-      openaiJson = null;
-    }
-    const content = openaiJson?.choices?.[0]?.message?.content ?? openaiText;
-
-    // Try to parse JSON out of model reply
-    let parsed = null;
-    try {
-      const m = content?.match(/\{[\s\S]*\}/);
-      const jsonText = m ? m[0] : content;
-      parsed = JSON.parse(jsonText);
-    } catch (e) {
-      parsed = { raw: content };
-    }
-
-    res.json({ ok: true, data: parsed, raw: content, posts: postsResp, clusters: clustersResp, mcp: mcpResp, openai_model_used: openaiModelUsed });
   } catch (err: any) {
     console.error('/api/agent/run error', err?.message ?? err);
     res.status(500).json({ ok: false, error: err?.message ?? String(err) });
