@@ -103,11 +103,11 @@ export default function Index() {
       }
       const result = json.data || json.raw || json;
 
-      // If server signaled OpenAI fallback or error, surface a UI toast
-      if (json.openai_fallback || json.openai_error) {
-        const desc = json.openai_error ? String(json.openai_error).slice(0, 300) : 'OpenAI unavailable — using rule-based fallback';
+      // If server signaled Flowise fallback, surface a UI toast
+      if (json.flowise_fallback) {
+        const desc = json.flowise_error ? String(json.flowise_error).slice(0, 300) : 'Flowise unavailable — using rule-based fallback';
         try {
-          toast({ title: 'OpenAI unavailable — using fallback', description: desc });
+          toast({ title: 'Flowise unavailable — using fallback', description: desc });
         } catch (e) {
           // ignore if toast system not initialized
         }
