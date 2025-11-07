@@ -143,27 +143,65 @@ export const runAgent: RequestHandler = async (req, res) => {
       return res.json({ ok: true, data: fallback, posts: postsResp, clusters: clustersResp, mcp: mcpResp });
     }
 
-    // Call OpenAI ChatCompletions
-    const openaiResp = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${openaiKey}`,
-      },
-      body: JSON.stringify({
-        model: process.env.OPENAI_MODEL || "gpt-3.5-turbo",
-        messages: [
-          { role: "system", content: system },
-          { role: "user", content: user },
-        ],
-        temperature: 0.2,
-        max_tokens: 800,
-      }),
-    });
+    // Call OpenAI ChatCompletions with retry to cheaper model on 429
+    const initialModel = process.env.OPENAI_MODEL || "gpt-4";
+    async function callOpenAI(modelName: string) {
+      const resp = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${openaiKey}`,
+        },
+        body: JSON.stringify({
+          model: modelName,
+          messages: [
+            { role: "system", content: system },
+            { role: "user", content: user },
+          ],
+          temperature: 0.2,
+          max_tokens: 800,
+        }),
+      });
+      const text = await resp.text();
+      return { resp, text } as const;
+    }
 
-    const openaiText = await openaiResp.text();
+    // Try initial model, then fallback to gpt-3.5-turbo if we receive a 429 and model differs
+    let openaiModelUsed = initialModel;
+    let openaiResp = null as any;
+    let openaiText = "";
+
+    try {
+      let attempt = await callOpenAI(initialModel);
+      openaiResp = attempt.resp;
+      openaiText = attempt.text;
+
+      if (!openaiResp.ok && openaiResp.status === 429 && initialModel !== "gpt-3.5-turbo") {
+        console.warn('OpenAI rate-limited on model', initialModel, '- retrying with gpt-3.5-turbo');
+        openaiModelUsed = "gpt-3.5-turbo";
+        const retryAttempt = await callOpenAI(openaiModelUsed);
+        openaiResp = retryAttempt.resp;
+        openaiText = retryAttempt.text;
+      }
+    } catch (e) {
+      console.warn('OpenAI fetch error:', e);
+      // fallback to rule-based
+      const fallbackScore = Math.min(100, Math.round(50 + Math.random() * 40));
+      const fallback = {
+        score: fallbackScore,
+        rationale: [
+          "Volume shows recent pickup in mentions",
+          "Growth rate strong compared to baseline",
+          "Sentiment mixed but high engagement",
+        ],
+        action: fallbackScore > 70 ? "Amplify" : fallbackScore > 45 ? "Monitor" : "Ignore",
+        explanation: `Fallback rule-based estimation because OpenAI fetch error: ${String(e)}`,
+      };
+      return res.json({ ok: true, data: fallback, posts: postsResp, clusters: clustersResp, mcp: mcpResp, openai_error: String(e) });
+    }
+
     if (!openaiResp.ok) {
-      console.warn('OpenAI call failed:', openaiResp.status, openaiText);
+      console.warn('OpenAI call failed after retries:', openaiResp.status, openaiText);
       // Fallback to rule-based estimator if OpenAI errors (quota, rate limits, etc.)
       const fallbackScore = Math.min(100, Math.round(50 + Math.random() * 40));
       const fallback = {
@@ -176,8 +214,9 @@ export const runAgent: RequestHandler = async (req, res) => {
         action: fallbackScore > 70 ? "Amplify" : fallbackScore > 45 ? "Monitor" : "Ignore",
         explanation: `Fallback rule-based estimation because OpenAI returned ${openaiResp.status}: ${openaiText}`,
       };
-      return res.json({ ok: true, data: fallback, posts: postsResp, clusters: clustersResp, mcp: mcpResp, openai_error: openaiText });
+      return res.json({ ok: true, data: fallback, posts: postsResp, clusters: clustersResp, mcp: mcpResp, openai_error: openaiText, openai_model_used: openaiModelUsed });
     }
+
     let openaiJson: any = null;
     try {
       openaiJson = JSON.parse(openaiText);
@@ -197,7 +236,7 @@ export const runAgent: RequestHandler = async (req, res) => {
       parsed = { raw: content };
     }
 
-    res.json({ ok: true, data: parsed, raw: content, posts: postsResp, clusters: clustersResp, mcp: mcpResp });
+    res.json({ ok: true, data: parsed, raw: content, posts: postsResp, clusters: clustersResp, mcp: mcpResp, openai_model_used: openaiModelUsed });
   } catch (err: any) {
     console.error('/api/agent/run error', err?.message ?? err);
     res.status(500).json({ ok: false, error: err?.message ?? String(err) });
