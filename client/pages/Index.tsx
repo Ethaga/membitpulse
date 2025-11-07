@@ -74,12 +74,17 @@ export default function Index() {
     setAnalysisLoading(true);
     setAnalysisError(null);
     setAnalysisResult(null);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
     try {
-      const resp = await fetch("/api/agent/run", {
+      const apiUrl = `${window.location.origin}/api/agent/run`;
+      const resp = await fetch(apiUrl, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ query: target }),
+        signal: controller.signal,
       });
+      clearTimeout(timeoutId);
       const text = await resp.text();
       let json: any;
       try {
@@ -110,8 +115,15 @@ export default function Index() {
       pushHistory(histItem);
       setLastRunTs(Date.now());
     } catch (err: any) {
-      setAnalysisError(err?.message ?? String(err));
+      const msg = err?.name === 'AbortError' ? 'Request timed out' : err?.message ?? String(err);
+      console.error('runAnalysis error', err);
+      if (msg === 'Failed to fetch' || msg.includes('NetworkError') || msg.includes('fetch')) {
+        setAnalysisError('Network error: failed to reach server. Check that the backend is running and reachable.');
+      } else {
+        setAnalysisError(msg);
+      }
     } finally {
+      clearTimeout(timeoutId);
       setAnalysisLoading(false);
     }
   }
