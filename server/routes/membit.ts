@@ -83,8 +83,9 @@ export const membitTrends: RequestHandler = async (req, res) => {
       const rpcBody = {
         jsonrpc: "2.0",
         id: `membit-trends-${Date.now()}`,
-        method: "trends",
-        params: { features: ["trends", "sentiment", "volume", "engagement"], limit: 50 },
+        // MCP often expects reasoning action; include action in params for robustness
+        method: "reasoning",
+        params: { action: 'trends', features: ["trends", "sentiment", "volume", "engagement"], limit: 50 },
       };
 
       const resp = await fetch(endpoint, {
@@ -102,16 +103,33 @@ export const membitTrends: RequestHandler = async (req, res) => {
         console.error('/api/membit/trends MCP error', resp.status, text);
         return res.status(502).json({ error: `MCP error ${resp.status}: ${text}` });
       }
-      let json: any = null;
+
+      // MCP may respond with SSE (event: message\ndata: {...}\n\n). Extract last data block if present.
+      let parsed: any = null;
       try {
-        json = JSON.parse(text);
+        if (typeof text === 'string' && text.trim().startsWith('event:')) {
+          // Parse SSE stream; find all lines starting with 'data:' and parse last one as JSON
+          const lines = text.split(/\r?\n/);
+          const dataLines = lines.filter((l) => l.startsWith('data:'));
+          if (dataLines.length === 0) throw new Error('No data lines in SSE');
+          const lastData = dataLines[dataLines.length - 1].replace(/^data:\s*/, '');
+          parsed = JSON.parse(lastData);
+        } else {
+          parsed = JSON.parse(text);
+        }
       } catch (e) {
         console.error('/api/membit/trends MCP parse error', e, text);
         return res.status(502).json({ error: 'Invalid JSON from MCP', raw: text });
       }
 
-      // JSON-RPC responses typically have a 'result' field
-      const rpcResult = json?.result ?? json;
+      // JSON-RPC responses typically have a 'result' or may include 'error'
+      if (parsed?.error) {
+        const errMsg = parsed.error?.message ?? JSON.stringify(parsed.error);
+        console.error('/api/membit/trends MCP error in payload', errMsg);
+        return res.status(502).json({ error: `MCP error: ${errMsg}`, raw: parsed });
+      }
+
+      const rpcResult = parsed?.result ?? parsed;
       const rawTopics = rpcResult.topics ?? rpcResult.results ?? rpcResult.data ?? rpcResult.items ?? rpcResult;
       if (!Array.isArray(rawTopics)) {
         console.error('/api/membit/trends MCP unexpected shape', rawTopics);
