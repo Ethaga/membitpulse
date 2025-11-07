@@ -75,19 +75,50 @@ function computeCPI(topics: TrendTopic[]): CPIResponse {
 export const membitTrends: RequestHandler = async (req, res) => {
   try {
     const apiKey = process.env.MEMBIT_API_KEY;
-    // If an API key is configured, you can call the real Membit API here.
-    // Fallback to mock if not configured or on failure.
-    let topics: TrendTopic[];
-
-    if (apiKey) {
-      // Example placeholder for real implementation:
-      // const resp = await fetch("https://api.membit.ai/v1/trends", { headers: { Authorization: `Bearer ${apiKey}` } });
-      // const json = await resp.json();
-      // topics = mapRealApi(json);
-      topics = mockTrends(12);
-    } else {
-      topics = mockTrends(12);
+    if (!apiKey) {
+      console.error('/api/membit/trends error: MEMBIT_API_KEY not configured');
+      return res.status(500).json({ error: 'MEMBIT_API_KEY not configured on server' });
     }
+
+    // Prefer calling direct Membit REST API for trends
+    const url = 'https://api.membit.ai/v1/trends';
+    const resp = await fetch(url, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' },
+    });
+
+    const text = await resp.text();
+    if (!resp.ok) {
+      console.error('/api/membit/trends remote error', resp.status, text);
+      return res.status(502).json({ error: `Membit API error ${resp.status}: ${text}` });
+    }
+
+    let json: any = null;
+    try {
+      json = JSON.parse(text);
+    } catch (e) {
+      console.error('/api/membit/trends parse error', e, text);
+      return res.status(502).json({ error: 'Invalid JSON from Membit API', raw: text });
+    }
+
+    // Expecting either json.topics or json.results or json.data
+    const rawTopics = json.topics ?? json.results ?? json.data ?? json;
+    if (!Array.isArray(rawTopics)) {
+      console.error('/api/membit/trends unexpected response shape', rawTopics);
+      return res.status(502).json({ error: 'Unexpected response from Membit API', raw: rawTopics });
+    }
+
+    // Map raw topics to TrendTopic shape if needed
+    const topics: TrendTopic[] = rawTopics.map((t: any, i: number) => ({
+      id: t.id ?? t.name ?? `topic-${i}`,
+      name: t.name ?? t.title ?? (typeof t === 'string' ? t : `topic-${i}`),
+      mentions: t.mentions ?? t.metric ?? 0,
+      growth24h: t.growth24h ?? t.change24h ?? t.growth ?? 0,
+      sentiment: typeof t.sentiment === 'number' ? t.sentiment : (t.sent ?? 0),
+      keywords: Array.isArray(t.keywords) ? t.keywords : (t.tags ?? []).slice(0, 6),
+      spark: Array.isArray(t.spark) ? t.spark : (t.series ?? []).slice(0, 16).map((v: any) => Number(v) || 0),
+      viralScore: t.viralScore ?? t.score ?? 0,
+    }));
 
     const sentiment = computeSentiment(topics);
     const cpi = computeCPI(topics);
@@ -95,7 +126,7 @@ export const membitTrends: RequestHandler = async (req, res) => {
     const response: TrendResponse = { topics, sentiment, cpi, ts: Date.now() };
     res.status(200).json(response);
   } catch (err) {
-    console.error("/api/membit/trends error", err);
-    res.status(200).json({ topics: mockTrends(10), sentiment: computeSentiment(mockTrends(10)), cpi: computeCPI(mockTrends(10)), ts: Date.now() });
+    console.error('/api/membit/trends error', err);
+    res.status(500).json({ error: String(err) });
   }
 };
