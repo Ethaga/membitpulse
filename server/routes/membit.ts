@@ -124,6 +124,7 @@ export const membitTrends: RequestHandler = async (req, res) => {
           if (!resp.ok) {
             // capture error and try next
             lastError = { status: resp.status, text };
+            // try next candidate
             continue;
           }
 
@@ -152,8 +153,48 @@ export const membitTrends: RequestHandler = async (req, res) => {
         }
       }
 
+      // If MCP didn't return usable data, fall back to direct REST Membit API when available
       if (!parsed) {
-        console.error('/api/membit/trends MCP all attempts failed', lastError);
+        console.warn('/api/membit/trends MCP all attempts failed, falling back to direct REST Membit API', lastError);
+        if (apiKey) {
+          try {
+            const url = 'https://api.membit.ai/v1/trends';
+            const resp = await fetch(url, {
+              method: 'GET',
+              headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' },
+            });
+            const text = await resp.text();
+            if (!resp.ok) {
+              console.error('/api/membit/trends remote error', resp.status, text);
+              return res.status(502).json({ error: `Membit API error ${resp.status}: ${text}` });
+            }
+            const jsonFallback = JSON.parse(text);
+            const rawTopics = jsonFallback.topics ?? jsonFallback.results ?? jsonFallback.data ?? jsonFallback;
+            if (!Array.isArray(rawTopics)) {
+              console.error('/api/membit/trends unexpected response shape (fallback)', rawTopics);
+              return res.status(502).json({ error: 'Unexpected response from Membit API (fallback)', raw: rawTopics });
+            }
+            const topics: TrendTopic[] = rawTopics.map((t: any, i: number) => ({
+              id: t.id ?? t.name ?? `topic-${i}`,
+              name: t.name ?? t.title ?? (typeof t === 'string' ? t : `topic-${i}`),
+              mentions: t.mentions ?? t.metric ?? 0,
+              growth24h: t.growth24h ?? t.change24h ?? t.growth ?? 0,
+              sentiment: typeof t.sentiment === 'number' ? t.sentiment : (t.sent ?? 0),
+              keywords: Array.isArray(t.keywords) ? t.keywords : (t.tags ?? []).slice(0, 6),
+              spark: Array.isArray(t.spark) ? t.spark : (t.series ?? []).slice(0, 16).map((v: any) => Number(v) || 0),
+              viralScore: t.viralScore ?? t.score ?? 0,
+            }));
+
+            const sentiment = computeSentiment(topics);
+            const cpi = computeCPI(topics);
+            return res.status(200).json({ topics, sentiment, cpi, ts: Date.now(), mcp: null });
+          } catch (e) {
+            console.error('/api/membit/trends fallback error', e);
+            return res.status(502).json({ error: `Membit fallback error: ${String(e)}` });
+          }
+        }
+
+        console.error('/api/membit/trends MCP all attempts failed and no API key for fallback', lastError);
         return res.status(502).json({ error: `MCP error: ${String(lastError)}` });
       }
 
@@ -177,7 +218,7 @@ export const membitTrends: RequestHandler = async (req, res) => {
 
       const sentiment = computeSentiment(topics);
       const cpi = computeCPI(topics);
-      return res.status(200).json({ topics, sentiment, cpi, ts: Date.now(), mcp: json });
+      return res.status(200).json({ topics, sentiment, cpi, ts: Date.now(), mcp: parsed });
     }
 
     if (!apiKey) {
