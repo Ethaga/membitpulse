@@ -80,53 +80,81 @@ export const membitTrends: RequestHandler = async (req, res) => {
     if (mcpUrl) {
       // Call remote MCP for consolidated trends using JSON-RPC envelope expected by MCP
       const endpoint = mcpUrl;
-      const rpcBody = {
-        jsonrpc: "2.0",
-        id: `membit-trends-${Date.now()}`,
-        // MCP often expects reasoning action; include action in params for robustness
-        method: "reasoning",
-        params: { action: 'trends', features: ["trends", "sentiment", "volume", "engagement"], limit: 50 },
-      };
-
-      const resp = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Membit-Api-Key': apiKey ?? '',
-          Accept: 'application/json, text/event-stream',
+      const candidateBodies = [
+        // JSON-RPC reasoning with params.action
+        {
+          jsonrpc: "2.0",
+          id: `membit-trends-${Date.now()}`,
+          method: "reasoning",
+          params: { action: 'trends', features: ["trends", "sentiment", "volume", "engagement"], limit: 50 },
         },
-        body: JSON.stringify(rpcBody),
-      });
+        // JSON-RPC with method 'trends' and params
+        {
+          jsonrpc: "2.0",
+          id: `membit-trends-${Date.now()}`,
+          method: "trends",
+          params: { features: ["trends", "sentiment", "volume", "engagement"], limit: 50 },
+        },
+        // JSON-RPC generic 'call' wrapper
+        {
+          jsonrpc: "2.0",
+          id: `membit-trends-${Date.now()}`,
+          method: "call",
+          params: { action: 'trends', features: ["trends", "sentiment", "volume", "engagement"], limit: 50 },
+        },
+        // Simple non-RPC: action only (older behavior)
+        { action: 'trends', features: ["trends", "sentiment", "volume", "engagement"], limit: 50 },
+      ];
 
-      const text = await resp.text();
-      if (!resp.ok) {
-        console.error('/api/membit/trends MCP error', resp.status, text);
-        return res.status(502).json({ error: `MCP error ${resp.status}: ${text}` });
-      }
-
-      // MCP may respond with SSE (event: message\ndata: {...}\n\n). Extract last data block if present.
       let parsed: any = null;
-      try {
-        if (typeof text === 'string' && text.trim().startsWith('event:')) {
-          // Parse SSE stream; find all lines starting with 'data:' and parse last one as JSON
-          const lines = text.split(/\r?\n/);
-          const dataLines = lines.filter((l) => l.startsWith('data:'));
-          if (dataLines.length === 0) throw new Error('No data lines in SSE');
-          const lastData = dataLines[dataLines.length - 1].replace(/^data:\s*/, '');
-          parsed = JSON.parse(lastData);
-        } else {
-          parsed = JSON.parse(text);
+      let lastError: any = null;
+      for (const body of candidateBodies) {
+        try {
+          const resp = await fetch(endpoint, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Membit-Api-Key': apiKey ?? '',
+              Accept: 'application/json, text/event-stream',
+            },
+            body: JSON.stringify(body),
+          });
+
+          const text = await resp.text();
+          if (!resp.ok) {
+            // capture error and try next
+            lastError = { status: resp.status, text };
+            continue;
+          }
+
+          // parse SSE or JSON
+          if (typeof text === 'string' && text.trim().startsWith('event:')) {
+            const lines = text.split(/\r?\n/);
+            const dataLines = lines.filter((l) => l.startsWith('data:'));
+            if (dataLines.length === 0) throw new Error('No data lines in SSE');
+            const lastData = dataLines[dataLines.length - 1].replace(/^data:\s*/, '');
+            parsed = JSON.parse(lastData);
+          } else {
+            parsed = JSON.parse(text);
+          }
+
+          // if parsed contains error, capture and try next
+          if (parsed?.error) {
+            lastError = { status: 502, text: JSON.stringify(parsed) };
+            continue;
+          }
+
+          // success
+          break;
+        } catch (e) {
+          lastError = e;
+          continue;
         }
-      } catch (e) {
-        console.error('/api/membit/trends MCP parse error', e, text);
-        return res.status(502).json({ error: 'Invalid JSON from MCP', raw: text });
       }
 
-      // JSON-RPC responses typically have a 'result' or may include 'error'
-      if (parsed?.error) {
-        const errMsg = parsed.error?.message ?? JSON.stringify(parsed.error);
-        console.error('/api/membit/trends MCP error in payload', errMsg);
-        return res.status(502).json({ error: `MCP error: ${errMsg}`, raw: parsed });
+      if (!parsed) {
+        console.error('/api/membit/trends MCP all attempts failed', lastError);
+        return res.status(502).json({ error: `MCP error: ${String(lastError)}` });
       }
 
       const rpcResult = parsed?.result ?? parsed;
