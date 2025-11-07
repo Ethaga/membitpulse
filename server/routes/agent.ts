@@ -211,7 +211,7 @@ export const runAgent: RequestHandler = async (req, res) => {
       action: fallbackScore > 70 ? 'Amplify' : fallbackScore > 45 ? 'Monitor' : 'Ignore',
       explanation: 'Fallback rule-based estimation because Flowise was unavailable or returned errors (Flowise-only LLM policy)',
     };
-    return res.json({ ok: true, data: fallback, posts: postsResp, clusters: clustersResp, mcp: mcpResp, flowise_fallback: true });
+    return res.json({ ok: true, data: fallback, posts: postsResp, clusters: clustersResp, mcp: mcpResp, flowise_fallback: true, flowise_error: flowiseErrorText });
   } catch (err: any) {
     console.error('/api/agent/run error', err?.message ?? err);
     res.status(500).json({ ok: false, error: err?.message ?? String(err) });
