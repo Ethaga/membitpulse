@@ -81,6 +81,8 @@ export const membitTrends: RequestHandler = async (req, res) => {
       // Call remote MCP for consolidated trends using JSON-RPC envelope expected by MCP
       const endpoint = mcpUrl;
       const candidateBodies = [
+        // Simple non-RPC: action object (preferred by MCP)
+        { action: 'trends', query: '', features: ["trends", "sentiment", "volume", "engagement"], limit: 50 },
         // JSON-RPC reasoning with params.action
         {
           jsonrpc: "2.0",
@@ -102,8 +104,6 @@ export const membitTrends: RequestHandler = async (req, res) => {
           method: "call",
           params: { action: 'trends', features: ["trends", "sentiment", "volume", "engagement"], limit: 50 },
         },
-        // Simple non-RPC: action only (older behavior)
-        { action: 'trends', features: ["trends", "sentiment", "volume", "engagement"], limit: 50 },
       ];
 
       let parsed: any = null;
