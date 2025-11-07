@@ -9,6 +9,7 @@ import FlowiseWidget from "@/components/FlowiseWidget";
 import LoadingSkeleton from "@/components/LoadingSkeleton";
 import AnalysisHistory from "@/components/AnalysisHistory";
 import LatestMembitPosts from "@/components/LatestMembitPosts";
+import TrendingClusters from "@/components/TrendingClusters";
 import ConfirmModal from "@/components/ConfirmModal";
 import { useRealTimeTrends } from "@/hooks/useRealTimeTrends";
 import type { TrendTopic } from "@shared/api";
