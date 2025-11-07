@@ -102,6 +102,17 @@ export default function Index() {
         return;
       }
       const result = json.data || json.raw || json;
+
+      // If server signaled OpenAI fallback or error, surface a UI toast
+      if (json.openai_fallback || json.openai_error) {
+        const desc = json.openai_error ? String(json.openai_error).slice(0, 300) : 'OpenAI unavailable — using rule-based fallback';
+        try {
+          toast({ title: 'OpenAI unavailable — using fallback', description: desc });
+        } catch (e) {
+          // ignore if toast system not initialized
+        }
+      }
+
       setAnalysisResult(result);
       setAnalysisMeta({ posts: json.posts, clusters: json.clusters });
       const score =
