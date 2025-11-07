@@ -6,6 +6,7 @@ import { membitTrends } from "./routes/membit";
 import { searchPosts, searchClusters } from "./routes/membitProxy";
 import { runAgent } from "./routes/agent";
 import { flowiseChat, flowiseConfig } from "./routes/flowise";
+import { getClustersWithPosts } from "./routes/membitClusters";
 
 export function createServer() {
   const app = express();
