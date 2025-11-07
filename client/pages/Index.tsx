@@ -191,6 +191,7 @@ export default function Index() {
         <div className="lg:col-span-2 space-y-6">
           <TrendStream topics={filtered} />
           <LatestMembitPosts />
+          <TrendingClusters />
         </div>
         <div className="lg:col-span-1 space-y-6">
           {data && <CPIGauge value={data.cpi.cpi} />}
