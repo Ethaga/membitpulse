@@ -5,7 +5,7 @@ import { handleDemo } from "./routes/demo";
 import { membitTrends } from "./routes/membit";
 import { searchPosts, searchClusters } from "./routes/membitProxy";
 import { runAgent } from "./routes/agent";
-import { flowiseChat } from "./routes/flowise";
+import { flowiseChat, flowiseConfig } from "./routes/flowise";
 
 export function createServer() {
   const app = express();
