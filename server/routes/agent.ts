@@ -143,87 +143,112 @@ export const runAgent: RequestHandler = async (req, res) => {
       return res.json({ ok: true, data: fallback, posts: postsResp, clusters: clustersResp, mcp: mcpResp });
     }
 
-    // Call OpenAI ChatCompletions but prefer immediate rule-based fallback on any non-OK response
-    const initialModel = process.env.OPENAI_MODEL || "gpt-4";
-    async function callOpenAI(modelName: string) {
-      const resp = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${openaiKey}`,
-        },
-        body: JSON.stringify({
-          model: modelName,
-          messages: [
-            { role: "system", content: system },
-            { role: "user", content: user },
-          ],
-          temperature: 0.2,
-          max_tokens: 800,
-        }),
+    // Prefer Flowise LLM when configured; if Flowise fails, fall back to OpenAI; finally use rule-based fallback
+    const flowiseUrl = process.env.FLOWISE_API_URL;
+    const flowiseKey = process.env.FLOWISE_API_KEY;
+
+    async function callFlowise() {
+      if (!flowiseUrl) throw new Error('FLOWISE_API_URL not configured');
+      const base = flowiseUrl.replace(/\/$/, "");
+      const endpoint = base.match(/\/prediction|\/chat/) ? base : `${base}/prediction`;
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (flowiseKey) {
+        headers['Authorization'] = `Bearer ${flowiseKey}`;
+        headers['x-api-key'] = flowiseKey;
+      }
+      const resp = await fetch(endpoint, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ question: user }),
       });
       const text = await resp.text();
       return { resp, text } as const;
     }
 
-    const openaiModelAttempted = initialModel;
-    try {
-      const attempt = await callOpenAI(initialModel);
-      const openaiResp = attempt.resp;
-      const openaiText = attempt.text;
-
-      if (!openaiResp.ok) {
-        // Immediate rule-based fallback — do not retry. Surface reason in response for UI.
-        console.warn('OpenAI returned non-OK status, using rule-based fallback:', openaiResp.status, openaiText);
-        const fallbackScore = Math.min(100, Math.round(50 + Math.random() * 40));
-        const fallback = {
-          score: fallbackScore,
-          rationale: [
-            "Volume shows recent pickup in mentions",
-            "Growth rate strong compared to baseline",
-            "Sentiment mixed but high engagement",
-          ],
-          action: fallbackScore > 70 ? "Amplify" : fallbackScore > 45 ? "Monitor" : "Ignore",
-          explanation: `Fallback rule-based estimation because OpenAI returned ${openaiResp.status}: ${openaiText}`,
-        };
-        return res.json({ ok: true, data: fallback, posts: postsResp, clusters: clustersResp, mcp: mcpResp, openai_error: openaiText, openai_fallback: true, openai_model_attempted: openaiModelAttempted });
-      }
-
-      // Success path continues below
-      let openaiJson: any = null;
+    // Try Flowise first
+    if (flowiseUrl) {
       try {
-        openaiJson = JSON.parse(openaiText);
+        const attempt = await callFlowise();
+        const flowiseResp = attempt.resp;
+        const flowiseText = attempt.text;
+        if (!flowiseResp.ok) {
+          console.warn('Flowise returned non-OK:', flowiseResp.status, flowiseText);
+          // proceed to OpenAI fallback
+        } else {
+          // Flowise success — normalize and return
+          let parsedFlow: any = null;
+          try {
+            parsedFlow = JSON.parse(flowiseText);
+          } catch (e) {
+            parsedFlow = { text: flowiseText };
+          }
+          const content = parsedFlow.text ?? parsedFlow.answer ?? flowiseText;
+          let parsed = null;
+          try {
+            const m = content?.match(/\{[\s\S]*\}/);
+            const jsonText = m ? m[0] : content;
+            parsed = JSON.parse(jsonText);
+          } catch (e) {
+            parsed = { raw: content };
+          }
+          return res.json({ ok: true, data: parsed, raw: content, posts: postsResp, clusters: clustersResp, mcp: mcpResp, flowise_used: true });
+        }
       } catch (e) {
-        openaiJson = null;
+        console.warn('Flowise call failed, falling back to OpenAI:', e);
       }
-      const content = openaiJson?.choices?.[0]?.message?.content ?? openaiText;
-
-      // Try to parse JSON out of model reply
-      let parsed = null;
-      try {
-        const m = content?.match(/\{[\s\S]*\}/);
-        const jsonText = m ? m[0] : content;
-        parsed = JSON.parse(jsonText);
-      } catch (e) {
-        parsed = { raw: content };
-      }
-
-      return res.json({ ok: true, data: parsed, raw: content, posts: postsResp, clusters: clustersResp, mcp: mcpResp, openai_model_used: initialModel });
-    } catch (e: any) {
-      console.warn('OpenAI fetch error, using rule-based fallback:', e);
-      const fallbackScore = Math.min(100, Math.round(50 + Math.random() * 40));
-      const fallback = {
-        score: fallbackScore,
-        rationale: [
-          "Volume shows recent pickup in mentions",
-          "Growth rate strong compared to baseline",
-          "Sentiment mixed but high engagement",
-        ],
-        action: fallbackScore > 70 ? "Amplify" : fallbackScore > 45 ? "Monitor" : "Ignore",
-        explanation: `Fallback rule-based estimation because OpenAI fetch error: ${String(e)}`,
-      };
-      return res.json({ ok: true, data: fallback, posts: postsResp, clusters: clustersResp, mcp: mcpResp, openai_error: String(e), openai_fallback: true, openai_model_attempted: openaiModelAttempted });
     }
+
+    // If Flowise not configured or failed, try OpenAI (if available)
+    if (openaiKey) {
+      const initialModel = process.env.OPENAI_MODEL || 'gpt-4';
+      async function callOpenAI(modelName: string) {
+        const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${openaiKey}` },
+          body: JSON.stringify({ model: modelName, messages: [{ role: 'system', content: system }, { role: 'user', content: user }], temperature: 0.2, max_tokens: 800 }),
+        });
+        const text = await resp.text();
+        return { resp, text } as const;
+      }
+
+      try {
+        const attempt = await callOpenAI(initialModel);
+        const openaiResp = attempt.resp;
+        const openaiText = attempt.text;
+        if (!openaiResp.ok) {
+          console.warn('OpenAI returned non-OK status, skipping to rule-based fallback:', openaiResp.status, openaiText);
+        } else {
+          let openaiJson: any = null;
+          try {
+            openaiJson = JSON.parse(openaiText);
+          } catch (e) {
+            openaiJson = null;
+          }
+          const content = openaiJson?.choices?.[0]?.message?.content ?? openaiText;
+          let parsed = null;
+          try {
+            const m = content?.match(/\{[\s\S]*\}/);
+            const jsonText = m ? m[0] : content;
+            parsed = JSON.parse(jsonText);
+          } catch (e) {
+            parsed = { raw: content };
+          }
+          return res.json({ ok: true, data: parsed, raw: content, posts: postsResp, clusters: clustersResp, mcp: mcpResp, openai_model_used: initialModel });
+        }
+      } catch (e) {
+        console.warn('OpenAI call failed:', e);
+      }
+    }
+
+    // Final fallback: rule-based estimation
+    const fallbackScore = Math.min(100, Math.round(50 + Math.random() * 40));
+    const fallback = {
+      score: fallbackScore,
+      rationale: ["Volume shows recent pickup in mentions", "Growth rate strong compared to baseline", "Sentiment mixed but high engagement"],
+      action: fallbackScore > 70 ? 'Amplify' : fallbackScore > 45 ? 'Monitor' : 'Ignore',
+      explanation: 'Fallback rule-based estimation because Flowise/OpenAI were unavailable or returned errors',
+    };
+    return res.json({ ok: true, data: fallback, posts: postsResp, clusters: clustersResp, mcp: mcpResp, openai_fallback: true });
   } catch (err: any) {
     console.error('/api/agent/run error', err?.message ?? err);
     res.status(500).json({ ok: false, error: err?.message ?? String(err) });
