@@ -83,17 +83,26 @@ export default function Index() {
     setAnalysisLoading(true);
     setAnalysisError(null);
     setAnalysisResult(null);
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000);
+    // Use a helper to convert AbortError into a controlled timeout error
+    function fetchWithTimeout(url: string, options: any = {}, ms = 15000) {
+      const ctrl = new AbortController();
+      const id = setTimeout(() => ctrl.abort(), ms);
+      return fetch(url, { ...options, signal: ctrl.signal })
+        .catch((e) => {
+          if (e && e.name === 'AbortError') throw new Error('Request timed out');
+          throw e;
+        })
+        .finally(() => clearTimeout(id));
+    }
+
     try {
       const apiUrl = `${window.location.origin}/api/agent/run`;
-      const resp = await fetch(apiUrl, {
+      const resp = await fetchWithTimeout(apiUrl, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ query: target }),
-        signal: controller.signal,
-      });
-      clearTimeout(timeoutId);
+      }, 15000);
+
       const text = await resp.text();
       let json: any;
       try {
