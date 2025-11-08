@@ -76,6 +76,10 @@ export default function Index() {
   };
 
   async function runAnalysis(target: string) {
+    if (!target || !String(target).trim()) {
+      setAnalysisError('Please provide a topic to analyze');
+      return;
+    }
     setAnalysisLoading(true);
     setAnalysisError(null);
     setAnalysisResult(null);
@@ -131,8 +135,9 @@ export default function Index() {
       pushHistory(histItem);
       setLastRunTs(Date.now());
     } catch (err: any) {
-      const msg = err?.name === 'AbortError' ? 'Request timed out' : err?.message ?? String(err);
-      console.error('runAnalysis error', err);
+      const isAbort = err?.name === 'AbortError';
+      const msg = isAbort ? 'Request timed out' : err?.message ?? String(err);
+      if (!isAbort) console.error('runAnalysis error', err);
       if (msg === 'Failed to fetch' || msg.includes('NetworkError') || msg.includes('fetch')) {
         setAnalysisError('Network error: failed to reach server. Check that the backend is running and reachable.');
       } else {
