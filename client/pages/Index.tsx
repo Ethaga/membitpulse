@@ -77,7 +77,7 @@ export default function Index() {
 
   async function runAnalysis(target: string) {
     if (!target || !String(target).trim()) {
-      setAnalysisError('Please provide a topic to analyze');
+      setAnalysisError("Please provide a topic to analyze");
       return;
     }
     setAnalysisLoading(true);
@@ -109,9 +109,14 @@ export default function Index() {
 
       // If server signaled Flowise fallback, surface a UI toast
       if (json.flowise_fallback) {
-        const desc = json.flowise_error ? String(json.flowise_error).slice(0, 300) : 'Flowise unavailable — using rule-based fallback';
+        const desc = json.flowise_error
+          ? String(json.flowise_error).slice(0, 300)
+          : "Flowise unavailable — using rule-based fallback";
         try {
-          toast({ title: 'Flowise unavailable — using fallback', description: desc });
+          toast({
+            title: "Flowise unavailable — using fallback",
+            description: desc,
+          });
         } catch (e) {
           // ignore if toast system not initialized
         }
@@ -135,11 +140,17 @@ export default function Index() {
       pushHistory(histItem);
       setLastRunTs(Date.now());
     } catch (err: any) {
-      const isAbort = err?.name === 'AbortError';
-      const msg = isAbort ? 'Request timed out' : err?.message ?? String(err);
-      if (!isAbort) console.error('runAnalysis error', err);
-      if (msg === 'Failed to fetch' || msg.includes('NetworkError') || msg.includes('fetch')) {
-        setAnalysisError('Network error: failed to reach server. Check that the backend is running and reachable.');
+      const isAbort = err?.name === "AbortError";
+      const msg = isAbort ? "Request timed out" : (err?.message ?? String(err));
+      if (!isAbort) console.error("runAnalysis error", err);
+      if (
+        msg === "Failed to fetch" ||
+        msg.includes("NetworkError") ||
+        msg.includes("fetch")
+      ) {
+        setAnalysisError(
+          "Network error: failed to reach server. Check that the backend is running and reachable.",
+        );
       } else {
         setAnalysisError(msg);
       }
