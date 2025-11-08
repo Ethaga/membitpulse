@@ -43,7 +43,7 @@ export default function TrendingClusters() {
       }
     }
     load();
-    return () => { mounted = false; controller.abort(); };
+    return () => { mounted = false; };
   }, []);
 
   return (
