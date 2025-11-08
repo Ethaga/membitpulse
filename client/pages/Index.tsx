@@ -164,7 +164,6 @@ export default function Index() {
         setAnalysisError(msg);
       }
     } finally {
-      clearTimeout(timeoutId);
       setAnalysisLoading(false);
     }
   }
