@@ -14,25 +14,36 @@ export function useRealTimeTrends(opts: UseRealTimeTrendsOptions = {}) {
   const [error, setError] = useState<Error | null>(null);
   const timerRef = useRef<number | null>(null);
 
+  const controllerRef = useRef<AbortController | null>(null);
+
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
+      // cleanup previous controller
+      if (controllerRef.current) {
+        try { controllerRef.current.abort(); } catch {}
+      }
       const controller = new AbortController();
+      controllerRef.current = controller;
       const d = await fetchTrends(controller.signal);
       setData(d);
     } catch (e) {
+      if ((e as any)?.name === 'AbortError') return;
       setError(e as Error);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [fetchTrends]);
 
   useEffect(() => {
     if (immediate) void load();
     timerRef.current = window.setInterval(() => void load(), intervalMs);
     return () => {
       if (timerRef.current) window.clearInterval(timerRef.current);
+      if (controllerRef.current) {
+        try { controllerRef.current.abort(); } catch {}
+      }
     };
   }, [intervalMs, immediate, load]);
 
